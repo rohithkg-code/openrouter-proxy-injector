@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, AsyncGenerator
 import pendulum
 import httpx
 from fastapi import FastAPI, Request, HTTPException, Header
@@ -13,8 +13,8 @@ app = FastAPI()
 # Настройка логирования
 log_level_name = os.getenv("UVICORN_LOG_LEVEL", "INFO").upper()
 log_level = getattr(logging, log_level_name, logging.INFO)
+logging.basicConfig(level=log_level)
 logger = logging.getLogger("openrouter-proxy")
-# logger = logging.getLogger("uvicorn.error")
 
 # Загрузка конфигурации
 PROXY_API_KEY = os.getenv("PROXY_API_KEY")
@@ -46,10 +46,8 @@ def sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
         key_lower = k.lower()
         if key_lower in sensitive_keys:
             sanitized[k] = "[REDACTED]"
-        elif key_lower == "content-type":
-            sanitized[k] = v
         else:
-            sanitized[k] = f"[LEN:{len(v)}]" if v else v
+            sanitized[k] = v
     return sanitized
 
 
@@ -128,52 +126,39 @@ key_manager = KeyManager()
 
 
 async def forward_request(
-    key: str,  # Реальный ключ OpenRouter
-    method: str,  # Метод запроса (POST)
-    url: str,  # https://openrouter.ai/api/v1/...
-    body: bytes,  # Тело запроса
-    params: Dict[str, str],  # Параметры URL
+    key: str,
+    method: str,
+    url: str,
+    body: bytes,
+    params: Dict[str, str],
     headers: Dict[str, str],
+    is_streaming: bool = False,
 ) -> httpx.Response:
     # 1. Фильтрация заголовков
     filtered_headers = {
-        k: v for k, v in headers.items() if k.lower() not in ["host", "content-length"]
-    }
-    filtered_headers.update({
         "Authorization": f"Bearer {key}",
-        "HTTP-Referer": "https://anythingllm.com",
-        "X-Title": "AnythingLLM",
+        "X-Title": "OpenrouterProxy",
         "Content-Type": "application/json",
-    })
-    # 2. Добавление обязательных заголовков
-    # filtered_headers["Authorization"] = f"Bearer {key}"
-    # filtered_headers["HTTP-Referer"] = "https://anythingllm.com"
-    # filtered_headers["X-Title"] = "AnythingLLM"
-    # filtered_headers["Content-Type"] = "application/json"
+    }
 
     # Детальное логирование запроса
     log_request_debug(method, url, filtered_headers, body)
 
-    # 4. Отправка запроса
+    # 4. Отправка запроса с использованием одного клиента
     async with httpx.AsyncClient() as client:
-        return await client.stream(
+        response = await client.request(
             method=method,
             url=url,
             headers=filtered_headers,
             content=body,
             params=params,
             timeout=30.0,
-            stream=True,
         )
+        return response
 
 
 @app.get("/health")
 async def health_endpoint(format: Optional[str] = None):
-    """
-    Health check endpoint that returns:
-    - Plain text "OK" by default
-    - JSON {"status": "OK"} when format=json is provided
-    """
     if format and format.lower() == "json":
         return JSONResponse(content={"status": "OK"}, status_code=200)
     return Response(content="OK", status_code=200)
@@ -187,31 +172,52 @@ async def get_key_status(apikey: str = Header(..., alias="APIKEY")):
     return KeyStatusResponse(keys=key_manager.get_key_statuses())
 
 
+async def generate_streaming_response(response: httpx.Response) -> AsyncGenerator[bytes, None]:
+    """Асинхронно генерирует chunks для streaming ответа"""
+    try:
+        async for chunk in response.aiter_bytes():
+            yield chunk
+    except httpx.RemoteProtocolError:
+        logger.warning("Client disconnected during streaming")
+    finally:
+        await response.aclose()
+
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_request(
     request: Request,
     path: str,
-    # Изменяем параметр авторизации для совместимости с OpenAI
     authorization: str = Header(None, alias="Authorization"),
-    # Альтернативный вариант для клиентов, использующих APIKEY
     apikey: str = Header(None, alias="APIKEY"),
 ):
     # Поддержка двух вариантов авторизации
+    valid_auth = False
     if apikey and apikey == PROXY_API_KEY:
-        # Вариант 1: Наш кастомный заголовок APIKEY
-        pass
+        valid_auth = True
     elif (
         authorization
         and authorization.startswith("Bearer ")
         and authorization.split(" ")[1] == PROXY_API_KEY
     ):
-        # Вариант 2: Стандартный OpenAI-формат
-        pass
-    else:
+        valid_auth = True
+
+    if not valid_auth:
         logger.warning("Invalid authentication")
         raise HTTPException(status_code=403, detail="Invalid authentication")
 
-    # 2. Получение доступного ключа
+    # Определяем является ли запрос streaming
+    is_streaming = False
+    body_bytes = await request.body()
+
+    try:
+        # Пытаемся распарсить JSON только если есть тело
+        if body_bytes:
+            request_body = json.loads(body_bytes)
+            is_streaming = request_body.get('stream', False)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse request body as JSON")
+
+    # Получение доступного ключа
     selected_key = key_manager.get_available_key()
     if not selected_key:
         logger.error("All API keys are rate limited")
@@ -220,31 +226,31 @@ async def proxy_request(
             detail="All API keys are rate limited. Try after 03:00 UTC.",
         )
 
-    # 3. Подготовка запроса к OpenRouter
+    # Подготовка запроса к OpenRouter
     openrouter_url = f"https://openrouter.ai/api/v1/{path}"
     headers = dict(request.headers)
-    logger.info(logger.warning("Invalid authentication"))
-    body = await request.body()
 
     # Логирование для отладки
     logger.info(f"Forwarding request to OpenRouter: {request.method} {openrouter_url}")
-    log_request_debug(request.method, openrouter_url, headers, body)
+    logger.debug(f"Streaming: {is_streaming}")
+    log_request_debug(request.method, openrouter_url, headers, body_bytes)
 
-    # 4. Отправка запроса с обработкой 429
+    # Отправка запроса с обработкой 429
     try:
+        # Первый запрос
         response = await forward_request(
             key=selected_key,
             method=request.method,
             url=openrouter_url,
             headers=headers,
-            body=body,
+            body=body_bytes,
             params=dict(request.query_params),
+            is_streaming=is_streaming
         )
 
         # Логирование ответа
         logger.info(f"OpenRouter response: {response.status_code}")
         logger.debug(f"Response headers: {sanitize_headers(dict(response.headers))}")
-        logger.debug(f"Response body sample: {response.content[:500]}...")
 
         # Обработка лимита запросов
         if response.status_code == 429:
@@ -259,19 +265,33 @@ async def proxy_request(
                     method=request.method,
                     url=openrouter_url,
                     headers=headers,
-                    body=body,
+                    body=body_bytes,
                     params=dict(request.query_params),
+                    is_streaming=is_streaming
                 )
-                return StreamingResponse(response.aiter_text(), headers=dict(response.headers))
+            else:
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": "All keys exhausted. Try after 03:00 UTC."},
+                )
 
-            # Если новый ключ недоступен
-            return JSONResponse(
-                status_code=429,
-                content={"error": "All keys exhausted. Try after 03:00 UTC."},
+        # Возвращаем streaming ответ
+        if is_streaming:
+            return StreamingResponse(
+                generate_streaming_response(response),
+                media_type="text/event-stream",
+                headers=dict(response.headers)
             )
 
-        # Возврат успешного ответа
-        return StreamingResponse(response.aiter_text(), headers=dict(response.headers))
+        # Возвращаем обычный ответ
+        content = await response.aread()
+        logger.debug(f"Response body sample: {content[:500]}...")
+        return Response(
+            content=content,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.headers.get("content-type", "application/json")
+        )
 
     except httpx.RequestError as e:
         logger.error(f"Request failed: {str(e)}")
