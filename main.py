@@ -7,6 +7,9 @@ from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 import json
+import time
+import uuid
+import backoff
 
 app = FastAPI()
 
@@ -18,14 +21,51 @@ logger = logging.getLogger("openrouter-proxy")
 
 # Загрузка конфигурации
 PROXY_API_KEY = os.getenv("PROXY_API_KEY")
+if not PROXY_API_KEY:
+    print("Ошибка: Переменная окружения PROXY_API_KEY не установлена.")
+    exit(1)
+
 OPENROUTER_KEYS = [
     k.strip() for k in os.getenv("OPENROUTER_KEYS", "").split(",") if k.strip()
 ]
+if not OPENROUTER_KEYS:
+    print("Ошибка: Переменная окружения OPENROUTER_KEYS не установлена или пуста.")
+    exit(1)
 TIMEZONE = os.getenv("TIMEZONE", "UTC")
 
 # Инициализация состояния ключей
 key_status: Dict[str, Optional[pendulum.DateTime]] = {}
 
+@backoff.on_predicate(
+    backoff.runtime,
+    predicate=lambda r: isinstance(r, httpx.Response) and r.status_code == 429,
+    value=lambda r: int(r.headers.get("Retry-After", 60)) if isinstance(r, httpx.Response) else 60,
+    jitter=None,
+    max_time=300  # Максимальное общее время ожидания - 5 минут
+)
+
+async def make_openrouter_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    content: bytes,
+    params: Dict[str, str],
+    timeout: float
+):
+    try:
+        response = await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=content,
+            params=params,
+            timeout=timeout
+        )
+        return response
+    except httpx.RequestError as e:
+        logger.warning(f"Request error: {str(e)}")
+        return None
 
 @app.on_event("startup")
 def initialize_key_status():
@@ -78,10 +118,21 @@ def log_request_debug(method: str, url: str, headers: Dict[str, str], body: byte
 
 
 class KeyManager:
+    def __init__(self):
+        self.current_index = 0
+
     def get_available_key(self) -> Optional[str]:
+        if not OPENROUTER_KEYS:
+            return None
+
+        # Циклический выбор ключа
         current_time = pendulum.now(TIMEZONE)
-        for key, lock_time in key_status.items():
+        for i in range(len(OPENROUTER_KEYS)):
+            key = OPENROUTER_KEYS[(self.current_index + i) % len(OPENROUTER_KEYS)]
+            lock_time = key_status[key]
             if lock_time is None or current_time >= lock_time:
+                # Переходим к следующему ключу
+                self.current_index = (self.current_index + i + 1) % len(OPENROUTER_KEYS)
                 return key
         return None
 
@@ -149,9 +200,8 @@ async def forward_streaming(
     params: Dict[str, str],
     selected_key: str
 ) -> AsyncGenerator[bytes, None]:
-    """Асинхронно форвардит streaming ответ"""
+    """Асинхронно форвардит streaming ответ с backoff"""
     try:
-        # Создаем потоковый запрос
         async with client.stream(
             method=method,
             url=url,
@@ -160,7 +210,6 @@ async def forward_streaming(
             params=params,
             timeout=30.0
         ) as response:
-            # Обработка ошибок
             if response.status_code == 429:
                 key_manager.handle_rate_limit_response(selected_key, response)
                 raise HTTPException(status_code=429, detail="Rate limited")
@@ -173,13 +222,10 @@ async def forward_streaming(
                     detail=error_body.decode("utf-8") if error_body else "OpenRouter API error"
                 )
 
-            # Логирование ответа
             logger.info(f"OpenRouter streaming response: {response.status_code}")
             logger.debug(f"Response headers: {sanitize_headers(dict(response.headers))}")
 
-            # Стримим данные клиенту
             async for chunk in response.aiter_bytes():
-                # Для отладки: логируем первый chunk
                 yield chunk
 
     except httpx.HTTPStatusError as e:
@@ -190,7 +236,7 @@ async def forward_streaming(
         raise HTTPException(status_code=500, detail="OpenRouter API unavailable")
 
 
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def proxy_request(
     request: Request,
     path: str,
@@ -235,6 +281,7 @@ async def proxy_request(
     # Подготовка запроса к OpenRouter
     openrouter_url = f"https://openrouter.ai/api/v1/{path}"
     params = dict(request.query_params)
+    unique_uuid = str(uuid.uuid4())[:6]
 
     # Логирование для отладки
     logger.info(f"Forwarding request to OpenRouter: {request.method} {openrouter_url}")
@@ -246,7 +293,7 @@ async def proxy_request(
         # Создаем заголовки для OpenRouter
         openrouter_headers = {
             "Authorization": f"Bearer {selected_key}",
-            "X-Title": "OpenrouterProxy",
+            "X-Title": f"Openrouter-{unique_uuid}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream"
         }
@@ -298,7 +345,6 @@ async def proxy_request(
     # Обработка не-streaming запросов
     async with httpx.AsyncClient() as client:
         try:
-            # Подготовка заголовков для обычного запроса
             headers = {
                 "Authorization": f"Bearer {selected_key}",
                 "X-Title": "OpenrouterProxy",
@@ -306,25 +352,25 @@ async def proxy_request(
                 "Accept": "application/json"
             }
 
-            response = await client.request(
+            response = await make_openrouter_request(
+                client=client,
                 method=request.method,
                 url=openrouter_url,
                 headers=headers,
                 content=body_bytes,
                 params=params,
-                timeout=30.0
+                timeout=10.0
             )
 
             # Обработка лимита запросов
             if response.status_code == 429:
                 key_manager.handle_rate_limit_response(selected_key, response)
-
-                # Повтор с новым ключом
                 new_key = key_manager.get_available_key()
                 if new_key:
                     logger.info(f"Retrying with new key: {new_key[:5]}...")
                     headers["Authorization"] = f"Bearer {new_key}"
-                    response = await client.request(
+                    response = await make_openrouter_request(
+                        client=client,
                         method=request.method,
                         url=openrouter_url,
                         headers=headers,
@@ -338,7 +384,6 @@ async def proxy_request(
                         content={"error": "All keys exhausted. Try after 03:00 UTC."},
                     )
 
-            # Возвращаем обычный ответ
             content = response.content
             logger.debug(f"Response body: {content[:500]}...")
             return Response(
@@ -347,7 +392,6 @@ async def proxy_request(
                 headers=dict(response.headers),
                 media_type=response.headers.get("content-type", "application/json")
             )
-
         except httpx.RequestError as e:
             logger.error(f"Request failed: {str(e)}")
             raise HTTPException(status_code=500, detail="OpenRouter API unavailable")

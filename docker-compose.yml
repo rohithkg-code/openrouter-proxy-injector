@@ -1,0 +1,16 @@
+services:
+  openrouter-proxy:
+    image: ghcr.io/serjs/openrouter-proxy-injector
+    environment:
+      - PROXY_API_KEY=${PROXY_API_KEY}
+      - OPENROUTER_KEYS=${OPENROUTER_KEYS}
+      - TIMEZONE=${TIMEZONE}
+      - UVICORN_LOG_LEVEL=debug
+    ports:
+      - "${APP_PORT}:8000"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
