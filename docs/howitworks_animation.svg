@@ -1,0 +1,281 @@
+<!-- Save as openrouter-proxy-flow.svg (or .html) and open in a modern browser -->
+<svg width="980" height="420" viewBox="0 0 980 420" xmlns="http://www.w3.org/2000/svg" style="background:#0b0f14;font-family:Inter,Segoe UI,Arial,sans-serif">
+  <defs>
+    <linearGradient id="g-blue" x1="0" x2="1">
+      <stop offset="0" stop-color="#74b0ff"/>
+      <stop offset="1" stop-color="#3a86ff"/>
+    </linearGradient>
+    <linearGradient id="g-green" x1="0" x2="1">
+      <stop offset="0" stop-color="#2bd47d"/>
+      <stop offset="1" stop-color="#19b56a"/>
+    </linearGradient>
+    <linearGradient id="g-red" x1="0" x2="1">
+      <stop offset="0" stop-color="#ff6b6b"/>
+      <stop offset="1" stop-color="#ff3b3b"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9bb3c6"/>
+    </marker>
+    <style>
+      .box { fill:#111824; stroke:#2a394a; stroke-width:1.5; rx:10; }
+      .label { fill:#e7f0f8; font-weight:600; font-size:14px; letter-spacing:0.2px; }
+      .sub { fill:#9bb3c6; font-size:12px; }
+      .pill { fill:#122034; stroke:#2a394a; stroke-width:1.2; rx:8; }
+      .pill text { font-size:12px; fill:#cfe3f2; }
+      .path { fill:none; stroke:#67839b; stroke-width:2.2; stroke-dasharray:5 7; marker-end:url(#arrow); opacity:0.7; }
+      .highlight { stroke:url(#g-blue); stroke-width:3; stroke-dasharray:none; opacity:1; }
+      .node-outline { stroke:#233446; stroke-width:2; rx:10; }
+      .badge { fill:#0f1a28; stroke:#2a394a; stroke-width:1; rx:6; }
+      .badge text { fill:#9bb3c6; font-size:11px; }
+      .dot { fill:url(#g-blue); filter:url(#glow); }
+      .ok { fill:url(#g-green); }
+      .err { fill:url(#g-red); }
+      .blink { animation: blink 0.3s linear infinite alternate; }
+      @keyframes blink { from { opacity:0.35 } to { opacity:1 } }
+      .muted { opacity:0.35 }
+    </style>
+  </defs>
+
+  <!-- Title -->
+  <text x="20" y="28" class="label" style="font-size:18px">OpenRouter key rotation via proxy with rate-limit handling</text>
+  <text x="20" y="48" class="sub">Client → Proxy → API Key (1..3) → OpenRouter. On 429: red blink + retry; on success: green blink.</text>
+
+  <!-- Lanes -->
+  <g id="lane-client">
+    <rect x="40" y="90" width="160" height="78" class="box"/>
+    <rect x="40" y="90" width="160" height="78" class="node-outline"/>
+    <text x="120" y="130" text-anchor="middle" class="label">Client</text>
+    <text x="120" y="150" text-anchor="middle" class="sub">SDK / App</text>
+  </g>
+
+  <g id="lane-proxy">
+    <rect x="260" y="70" width="200" height="200" class="box"/>
+    <rect x="260" y="70" width="200" height="200" class="node-outline"/>
+    <text x="360" y="100" text-anchor="middle" class="label">Proxy Service</text>
+    <text x="360" y="120" text-anchor="middle" class="sub">Auth • Routing • Retries</text>
+
+    <rect x="280" y="140" width="160" height="36" class="badge"/>
+    <text x="360" y="162" text-anchor="middle" class="sub">Key rotationL</text>
+
+    <rect x="280" y="184" width="160" height="36" class="badge"/>
+    <text x="360" y="206" text-anchor="middle" class="sub">Upstream Rate Limit handling</text>
+  </g>
+
+  <g id="lane-keys">
+    <rect x="510" y="58" width="170" height="240" class="box"/>
+    <rect x="510" y="58" width="170" height="240" class="node-outline"/>
+    <text x="595" y="86" text-anchor="middle" class="label">API keys</text>
+
+    <g id="key1" transform="translate(530,108)">
+      <rect width="130" height="36" class="pill"/>
+      <text x="10" y="23" class="sub">API Key 1</text>
+    </g>
+    <g id="key2" transform="translate(530,158)">
+      <rect width="130" height="36" class="pill"/>
+      <text x="10" y="23" class="sub">API Key 2</text>
+    </g>
+    <g id="key3" transform="translate(530,208)">
+      <rect width="130" height="36" class="pill"/>
+      <text x="10" y="23" class="sub">API Key 3</text>
+    </g>
+  </g>
+
+  <g id="lane-openrouter">
+    <ellipse id="openrouter-shape" cx="840" cy="178" rx="90" ry="52" fill="#121e30" stroke="#2a394a" stroke-width="2"/>
+    <text x="840" y="174" text-anchor="middle" class="label">OpenRouter</text>
+    <text x="840" y="194" text-anchor="middle" class="sub">API</text>
+  </g>
+
+  <!-- Paths -->
+  <path id="p-client-proxy" class="path" d="M200,129 C230,129 250,120 260,120"/>
+  <path id="p-proxy-key1" class="path" d="M460,156 C485,156 505,140 530,126"/>
+  <path id="p-proxy-key2" class="path" d="M460,176 C485,176 505,176 530,176"/>
+  <path id="p-proxy-key3" class="path" d="M460,196 C485,196 505,212 530,226"/>
+
+  <path id="p-key1-or" class="path" d="M660,126 C700,126 760,150 780,162 C795,170 810,174 840,174"/>
+  <path id="p-key2-or" class="path" d="M660,176 C700,176 760,176 780,176 C810,176 820,176 840,176"/>
+  <path id="p-key3-or" class="path" d="M660,226 C700,226 760,202 780,192 C795,186 810,182 840,182"/>
+
+  <!-- Moving dots (requests) -->
+  <circle id="dotA" r="6" class="dot" cx="200" cy="129"/>
+  <circle id="dotB" r="6" class="dot" cx="200" cy="129"/>
+
+  <!-- Status badges -->
+  <g id="badge-429" visibility="hidden" transform="translate(660,152)">
+    <rect width="56" height="22" rx="5" class="badge" />
+    <text x="28" y="15" text-anchor="middle" class="sub" fill="#ff6b6b">429</text>
+  </g>
+  <g id="badge-ok" visibility="hidden" transform="translate(880,152)">
+    <rect width="66" height="22" rx="5" class="badge" />
+    <text x="33" y="15" text-anchor="middle" class="sub" fill="#2bd47d">200 OK</text>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(22,352)">
+    <rect width="936" height="46" rx="8" fill="#0f1825" stroke="#213042"/>
+    <circle cx="44" cy="23" r="5" fill="url(#g-blue)"/><text x="60" y="28" class="sub">Request in flight</text>
+    <rect x="190" y="13" width="16" height="16" rx="3" class="err blink"/><text x="214" y="26" class="sub">Error 429 (red blink)</text>
+    <rect x="370" y="13" width="16" height="16" rx="3" class="ok blink"/><text x="394" y="26" class="sub">Success 2xx (green blink)</text>
+    <line x1="560" y1="21" x2="620" y2="21" class="path"/><text x="628" y="26" class="sub">Routing path</text>
+  </g>
+
+  <script><![CDATA[
+    // Utility to animate a dot along an SVG path
+    function animateAlongPath(dot, path, duration, opts = {}) {
+      return new Promise(resolve => {
+        const total = path.getTotalLength();
+        const start = performance.now();
+        const easing = opts.easing || ((t)=>t); // linear by default
+
+        function frame(now) {
+          let t = Math.min(1, (now - start) / duration);
+          t = easing(t);
+          const pt = path.getPointAtLength(total * t);
+          dot.setAttribute('cx', pt.x);
+          dot.setAttribute('cy', pt.y);
+          if (t < 1) requestAnimationFrame(frame);
+          else resolve();
+        }
+        requestAnimationFrame(frame);
+      });
+    }
+
+    // Blink helpers
+    function blinkRect(g, cls, ms=800) {
+      const rect = g.querySelector('rect');
+      rect.classList.add(cls, 'blink');
+      return new Promise(res => setTimeout(()=>{
+        rect.classList.remove('blink');
+        res();
+      }, ms));
+    }
+    function setRectState(g, state /* '', 'ok', 'err' */) {
+      const rect = g.querySelector('rect');
+      rect.classList.remove('ok','err','blink');
+      if (state) rect.classList.add(state);
+    }
+
+    // Highlight path while active
+    function highlightPath(path, ms) {
+      path.classList.add('highlight');
+      return new Promise(res => setTimeout(()=>{
+        path.classList.remove('highlight');
+        res();
+      }, ms));
+    }
+
+    // Small pause
+    const wait = (ms)=>new Promise(res=>setTimeout(res,ms));
+
+    // Elements
+    const dotA = document.getElementById('dotA');
+    const dotB = document.getElementById('dotB');
+
+    const pClientProxy = document.getElementById('p-client-proxy');
+    const pProxyKey1  = document.getElementById('p-proxy-key1');
+    const pProxyKey2  = document.getElementById('p-proxy-key2');
+    const pProxyKey3  = document.getElementById('p-proxy-key3');
+    const pKey1OR = document.getElementById('p-key1-or');
+    const pKey2OR = document.getElementById('p-key2-or');
+    const pKey3OR = document.getElementById('p-key3-or');
+
+    const key1 = document.getElementById('key1');
+    const key2 = document.getElementById('key2');
+    const key3 = document.getElementById('key3');
+    const openrouter = document.getElementById('openrouter-shape');
+
+    const badge429 = document.getElementById('badge-429');
+    const badgeOK  = document.getElementById('badge-ok');
+
+    function show(el) { el.setAttribute('visibility','visible'); }
+    function hide(el) { el.setAttribute('visibility','hidden'); }
+
+    // Easing
+    const ease = t => 1 - Math.pow(1-t, 3);
+
+    async function requestA() {
+      // Client -> Proxy
+      await highlightPath(pClientProxy, 700);
+      await animateAlongPath(dotA, pClientProxy, 700, {easing:ease});
+
+      // Proxy -> Key2
+      await highlightPath(pProxyKey2, 600);
+      await animateAlongPath(dotA, pProxyKey2, 600, {easing:ease});
+
+      // Key2 -> OpenRouter (first attempt -> 429)
+      await highlightPath(pKey2OR, 900);
+      await animateAlongPath(dotA, pKey2OR, 900, {easing:ease});
+
+      // Error: blink Key2 red, show 429 near OR
+      setRectState(key2,'err');
+      show(badge429);
+      await blinkRect(key2,'err',900);
+      setRectState(key2,'');
+
+      // Retry: backoff, then Key2 -> OpenRouter success
+      await wait(500);
+      await highlightPath(pKey2OR, 900);
+      await animateAlongPath(dotA, pKey2OR, 900, {easing:ease});
+
+      // Success: blink Key2 and OR green, show 200 OK
+      setRectState(key2,'ok');
+      openrouter.classList.add('ok','blink');
+      hide(badge429);
+      show(badgeOK);
+      await wait(800);
+      setRectState(key2,'');
+      openrouter.classList.remove('ok','blink');
+      hide(badgeOK);
+
+      // Return dot to client start (invisibly)
+      dotA.setAttribute('cx','200'); dotA.setAttribute('cy','129');
+    }
+
+    async function requestB() {
+      // Client -> Proxy
+      await highlightPath(pClientProxy, 700);
+      await animateAlongPath(dotB, pClientProxy, 700, {easing:ease});
+
+      // Proxy -> Key3
+      await highlightPath(pProxyKey3, 600);
+      await animateAlongPath(dotB, pProxyKey3, 600, {easing:ease});
+
+      // Key3 -> OpenRouter success
+      await highlightPath(pKey3OR, 900);
+      await animateAlongPath(dotB, pKey3OR, 900, {easing:ease});
+
+      // Success blinks
+      setRectState(key3,'ok');
+      openrouter.classList.add('ok','blink');
+      show(badgeOK);
+      await wait(800);
+      setRectState(key3,'');
+      openrouter.classList.remove('ok','blink');
+      hide(badgeOK);
+
+      // Reset
+      dotB.setAttribute('cx','200'); dotB.setAttribute('cy','129');
+    }
+
+    // Orchestrate loop: A (429->retry->200), then B (200), then pause and repeat with rotation
+    async function loop() {
+      while (true) {
+        await wait(400);
+        await requestA();
+        await wait(600);
+        await requestB();
+        await wait(1200);
+      }
+    }
+
+    // Start
+    loop();
+  ]]></script>
+</svg>
