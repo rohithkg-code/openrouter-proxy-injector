@@ -9,7 +9,7 @@
 # Readme on other languages
 
 [![en](https://img.shields.io/badge/lang-en-blue.svg)](https://github.com/serjs/openrouter-proxy-injector/blob/oss/Readme.md)
-[![ru](https://img.shields.io/badge/lang-ru-red.svg)](https://github.com/Hostwerk-Labs/nexus-node/blob/oss/docsReadme-ru.md)
+[![ru](https://img.shields.io/badge/lang-ru-red.svg)](https://github.com/serjs/openrouter-proxy-injector/blob/oss/docs/Readme-ru.md)
 
 # Service overview
 
@@ -35,33 +35,26 @@ It’s ideal for Vibe coding, intensive AI agent usage, or simply developing wit
 
 ![OpenRouter Proxy Flow](./docs/howitworks_animation.svg)
 
-## Technical architecture
+<details>
+  <summary>Technical architecture</summary>
+  <p>
 
-```mermaid
+  ```mermaid
+  graph TD
+  A["Client (VSCode / AnythingLLM / Custom Code)"] -->|"Request with APIKEY variable"| B["Proxy Server"]
+  B --> C{"Are there available keys?"}
+  C -->|"Yes"| D["Select active key"]
+  C -->|"No"| E["429 - All keys exhausted"] --> F["Response to client"]
+  D --> G["Send request with real OpenRouter key"]
+  G --> H{"Response from OpenRouter"}
+  H -->|"200 OK"| I["Successful response"] --> F
+  H -->|"429 - Provider error (retryable)"| L["Retry request (up to 15 times)"] --> H
+  H -->|"429 - Rate limit for free models"| J["Block key until 03:00 UTC"] --> K["Retry with new key if available"] --> C
+  H -->|"4XX / 5XX - Other error"| ERR["Return error to client"] --> F
+  ```
 
-graph TD
-
-    A["Client (VSCode / AnythingLLM / Custom Code)"] -->|"Request with APIKEY variable"| B["Proxy Server"]
-
-    B --> C{"Are there available keys?"}
-
-    C -->|"Yes"| D["Select active key"]
-
-    C -->|"No"| E["429 - All keys exhausted"] --> F["Response to client"]
-
-    D --> G["Send request with real OpenRouter key"]
-
-    G --> H{"Response from OpenRouter"}
-
-    H -->|"200 OK"| I["Successful response"] --> F
-
-    H -->|"429 - Provider error (retryable)"| L["Retry request (up to 15 times)"] --> H
-
-    H -->|"429 - Rate limit for free models"| J["Block key until 03:00 UTC"] --> K["Retry with new key if available"] --> C
-
-    H -->|"4XX / 5XX - Other error"| ERR["Return error to client"] --> F
-
-```
+  </p>
+</details>
 
 # App config parameters
 
