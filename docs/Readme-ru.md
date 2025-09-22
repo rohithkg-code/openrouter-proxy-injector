@@ -19,7 +19,7 @@ Openrouter proxy injector позволяет вам запускать и упр
 - Учитывает лимит повторных попыток в минуту для Openrouter API.
 # Технические детали
 
-![OpenRouter Proxy Flow](./docs/howitworks_animation.svg)
+![OpenRouter Proxy Flow](./docs/howitworks_animation.gif)
 
 <details>
   <summary>Техническая архитектура</summary>

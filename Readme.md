@@ -33,7 +33,7 @@ It’s ideal for Vibe coding, intensive AI agent usage, or simply developing wit
 
 # Tech details
 
-![OpenRouter Proxy Flow](./docs/howitworks_animation.svg)
+![OpenRouter Proxy Flow](./docs/howitworks_animation.gif)
 
 <details>
   <summary>Technical architecture</summary>
