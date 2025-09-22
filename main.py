@@ -8,41 +8,69 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 import json
 import time
-import uuid
 import backoff
+import asyncio
+import functools
 
 app = FastAPI()
 
-# Настройка логирования
+# Logging setup
 log_level_name = os.getenv("UVICORN_LOG_LEVEL", "INFO").upper()
 log_level = getattr(logging, log_level_name, logging.INFO)
 logging.basicConfig(level=log_level)
 logger = logging.getLogger("openrouter-proxy")
 
-# Загрузка конфигурации
+# Configuration loading
 PROXY_API_KEY = os.getenv("PROXY_API_KEY")
 if not PROXY_API_KEY:
-    print("Ошибка: Переменная окружения PROXY_API_KEY не установлена.")
+    logger.error("Error: Environment variable PROXY_API_KEY is not set.")
     exit(1)
 
 OPENROUTER_KEYS = [
     k.strip() for k in os.getenv("OPENROUTER_KEYS", "").split(",") if k.strip()
 ]
 if not OPENROUTER_KEYS:
-    print("Ошибка: Переменная окружения OPENROUTER_KEYS не установлена или пуста.")
+    logger.error("Error: Environment variable OPENROUTER_KEYS is not set or empty.")
     exit(1)
 TIMEZONE = os.getenv("TIMEZONE", "UTC")
 
-# Инициализация состояния ключей
+# Initialize key status
 key_status: Dict[str, Optional[pendulum.DateTime]] = {}
 
+# Retry for non-streaming requests
 @backoff.on_predicate(
-    backoff.runtime,
-    predicate=lambda r: isinstance(r, httpx.Response) and r.status_code == 429,
-    value=lambda r: int(r.headers.get("Retry-After", 60)) if isinstance(r, httpx.Response) else 60,
+    backoff.expo,
+    predicate=lambda r: isinstance(r, httpx.Response) and r.status_code == 429 and check_retryable_error(r),
+    max_tries=15,
     jitter=None,
-    max_time=300  # Максимальное общее время ожидания - 5 минут
+    base=1.7
 )
+
+# Retry for streaming requests
+def async_retryable(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        last_exception = None
+        for attempt in range(15):
+            try:
+                async for value in func(*args, **kwargs):
+                    yield value
+                break
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    logger.info(f"Attempt {attempt + 1} failed with status 429, retrying...")
+                    last_exception = e
+                    await asyncio.sleep(1.7 ** attempt)
+                else:
+                    raise
+            except Exception as e:
+                logger.info(f"Attempt {attempt + 1} failed with exception: {e}, retrying...")
+                last_exception = e
+                await asyncio.sleep(1.7 ** attempt)
+        else:
+            # If the loop completes without breaking, all retries have been exhausted.
+            raise last_exception
+    return wrapper
 
 async def make_openrouter_request(
     client: httpx.AsyncClient,
@@ -67,6 +95,25 @@ async def make_openrouter_request(
         logger.warning(f"Request error: {str(e)}")
         return None
 
+def check_retryable_error(response: httpx.Response) -> bool:
+    """
+    Checks if the error in the httpx.Response is retryable based on its content.
+    """
+    try:
+        error_content = response.json()
+        error_message = error_content.get("error", {}).get("message", "")
+        error_code = error_content.get("error", {}).get("code", None)
+
+        if error_code == 429 and "Provider returned error" in error_message:
+            return True
+
+    except json.JSONDecodeError:
+        logger.warning("Failed to decode JSON from response body during retry check")
+    except Exception as e:
+        logger.error(f"Unexpected error checking retryable error: {str(e)}")
+
+    return False
+
 @app.on_event("startup")
 def initialize_key_status():
     global key_status
@@ -79,7 +126,7 @@ def initialize_key_status():
 
 
 def sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
-    """Очищает конфиденциальные данные из заголовков"""
+    """Removes sensitive data from headers"""
     sensitive_keys = ["authorization", "apikey", "cookie", "set-cookie"]
     sanitized = {}
     for k, v in headers.items():
@@ -92,11 +139,11 @@ def sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
 
 
 def log_request_debug(method: str, url: str, headers: Dict[str, str], body: bytes):
-    """Логирует детали запроса в debug режиме"""
-    # Очищаем заголовки
+    """Logs request details in debug mode"""
+    # Clean headers
     sanitized_headers = sanitize_headers(headers)
 
-    # Парсим тело если это JSON
+    # Parse body if it's JSON
     body_info = None
     if body:
         try:
@@ -104,7 +151,7 @@ def log_request_debug(method: str, url: str, headers: Dict[str, str], body: byte
         except:
             body_info = f"Binary data ({len(body)} bytes)"
 
-    # Формируем логируемый объект
+    # Form loggable object
     log_data = {
         "method": method,
         "url": url,
@@ -120,53 +167,67 @@ def log_request_debug(method: str, url: str, headers: Dict[str, str], body: byte
 class KeyManager:
     def __init__(self):
         self.current_index = 0
+        self.success_counts: Dict[str, int] = {key: 0 for key in OPENROUTER_KEYS}
 
     def get_available_key(self) -> Optional[str]:
         if not OPENROUTER_KEYS:
             return None
 
-        # Циклический выбор ключа
+        # Cyclic key selection
         current_time = pendulum.now(TIMEZONE)
         for i in range(len(OPENROUTER_KEYS)):
             key = OPENROUTER_KEYS[(self.current_index + i) % len(OPENROUTER_KEYS)]
             lock_time = key_status[key]
             if lock_time is None or current_time >= lock_time:
-                # Переходим к следующему ключу
-                self.current_index = (self.current_index + i + 1) % len(OPENROUTER_KEYS)
-                return key
+                if self.success_counts[key] < 10:
+                    # Move to the next key
+                    self.current_index = (self.current_index + i + 1) % len(OPENROUTER_KEYS)
+                    return key
+                else:
+                    logger.warning(f"Key {key[:8]}... has reached the maximum success count and is temporarily blocked.")
+
         return None
 
     def block_key_until_next_day(self, key: str):
-        unlock_time = pendulum.tomorrow(TIMEZONE).set(hour=3, minute=0, second=0)
+        utc_midnight = pendulum.today('UTC').add(days=1).to_datetime_string()
+        unlock_time = pendulum.parse(utc_midnight).in_timezone(TIMEZONE)
         key_status[key] = unlock_time
+
         logger.warning(
             f"Key {key[:5]}... blocked until {unlock_time.to_iso8601_string()}"
         )
 
-    def handle_rate_limit_response(self, key: str, response: httpx.Response):
-        reset_header = response.headers.get("X-RateLimit-Reset")
-        if reset_header:
+    async def handle_rate_limit_response(self, key: str, response: httpx.Response):
+        try:
             try:
-                reset_time = pendulum.from_timestamp(
-                    int(reset_header) / 1000.0, tz=TIMEZONE
-                )
-                key_status[key] = reset_time
-                logger.warning(
-                    f"Key {key[:5]}... blocked by rate limit until {reset_time.to_iso8601_string()}"
-                )
-                return
-            except Exception as e:
-                logger.error(f"Error parsing reset time: {e}")
-        self.block_key_until_next_day(key)
+                error_content_bytes = await response.aread()
+                # Now, attempt to decode the bytes to JSON
+                error_content = json.loads(error_content_bytes.decode('utf-8'))
+            except json.decoder.JSONDecodeError:
+                error_content = None
+
+            if error_content:
+                error_message = error_content.get("error", {}).get("message", "")
+                error_code = error_content.get("error", {}).get("code", None)
+
+                if error_code == 429 and "free-models-per-day" in error_message:
+                    self.block_key_until_next_day(key)
+                else:
+                    logger.warning(f"Key {key[:5]}... is temporarily rate-limited upstream.")
+            else:
+                logger.warning("Response body is not JSON, cannot determine rate limit type.")
+
+        except Exception as e:
+            logger.error(f"Unexpected error handling rate limit response: {str(e)}")
 
     def get_key_statuses(self) -> Dict[str, str]:
         current_time = pendulum.now(TIMEZONE)
         statuses = {}
         for key, lock_time in key_status.items():
             if lock_time is None:
-                statuses[key] = "active"
+                statuses[key] = "active" if self.success_counts[key] < 10 else "max_success_reached"
             elif current_time >= lock_time:
-                statuses[key] = "active"
+                statuses[key] = "active"  if self.success_counts[key] < 10 else "max_success_reached"
                 key_status[key] = None
             else:
                 statuses[key] = f"blocked_until_{lock_time.to_iso8601_string()}"
@@ -190,7 +251,7 @@ async def get_key_status(apikey: str = Header(..., alias="APIKEY")):
         raise HTTPException(status_code=403, detail="Invalid proxy API key")
     return KeyStatusResponse(keys=key_manager.get_key_statuses())
 
-
+@async_retryable
 async def forward_streaming(
     client: httpx.AsyncClient,
     method: str,
@@ -200,7 +261,7 @@ async def forward_streaming(
     params: Dict[str, str],
     selected_key: str
 ) -> AsyncGenerator[bytes, None]:
-    """Асинхронно форвардит streaming ответ с backoff"""
+    """Asynchronously forwards streaming response with backoff"""
     try:
         async with client.stream(
             method=method,
@@ -211,15 +272,20 @@ async def forward_streaming(
             timeout=30.0
         ) as response:
             if response.status_code == 429:
-                key_manager.handle_rate_limit_response(selected_key, response)
+                await key_manager.handle_rate_limit_response(selected_key, response)
                 raise HTTPException(status_code=429, detail="Rate limited")
 
             if response.status_code != 200:
-                error_body = await response.aread()
-                logger.error(f"OpenRouter error: {response.status_code} - {error_body}")
+                try:
+                    error_body = await response.aread()
+                    error_detail = error_body.decode("utf-8") if error_body else "OpenRouter API error"
+                except Exception as e:
+                    error_detail = f"Failed to read error body: {str(e)}"
+
+                logger.error(f"OpenRouter error: {response.status_code} - {error_detail}")
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=error_body.decode("utf-8") if error_body else "OpenRouter API error"
+                    detail=error_detail
                 )
 
             logger.info(f"OpenRouter streaming response: {response.status_code}")
@@ -235,7 +301,6 @@ async def forward_streaming(
         logger.error(f"Request failed: {str(e)}")
         raise HTTPException(status_code=500, detail="OpenRouter API unavailable")
 
-
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def proxy_request(
     request: Request,
@@ -243,7 +308,7 @@ async def proxy_request(
     authorization: str = Header(None, alias="Authorization"),
     apikey: str = Header(None, alias="APIKEY"),
 ):
-    # Поддержка двух вариантов авторизации
+    # Support two authentication methods
     valid_auth = False
     if apikey and apikey == PROXY_API_KEY:
         valid_auth = True
@@ -258,7 +323,7 @@ async def proxy_request(
         logger.warning("Invalid authentication")
         raise HTTPException(status_code=403, detail="Invalid authentication")
 
-    # Определяем является ли запрос streaming
+    # Determine if request is streaming
     is_streaming = False
     body_bytes = await request.body()
 
@@ -269,7 +334,7 @@ async def proxy_request(
     except json.JSONDecodeError:
         logger.warning("Failed to parse request body as JSON")
 
-    # Получение доступного ключа
+    # Get available key
     selected_key = key_manager.get_available_key()
     if not selected_key:
         logger.error("All API keys are rate limited")
@@ -278,24 +343,25 @@ async def proxy_request(
             detail="All API keys are rate limited. Try after 03:00 UTC.",
         )
 
-    # Подготовка запроса к OpenRouter
+    # Prepare request to OpenRouter
     openrouter_url = f"https://openrouter.ai/api/v1/{path}"
     params = dict(request.query_params)
-    unique_uuid = str(uuid.uuid4())[:6]
 
-    # Логирование для отладки
+    # Logging for debugging
     logger.info(f"Forwarding request to OpenRouter: {request.method} {openrouter_url}")
     logger.debug(f"Streaming: {is_streaming}")
     logger.debug(f"Request body: {body_bytes.decode('utf-8')}")
 
-    # Для streaming запросов используем специальную обработку
+    # For streaming requests, use special handling
     if is_streaming:
-        # Создаем заголовки для OpenRouter
+        # Create headers for OpenRouter
         openrouter_headers = {
             "Authorization": f"Bearer {selected_key}",
-            "X-Title": f"Openrouter-{unique_uuid}",
             "Content-Type": "application/json",
-            "Accept": "text/event-stream"
+            "Accept": "text/event-stream",
+            "Origin": "https://openrouter.ai",
+            "Referer": "https://openrouter.ai",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0"
         }
 
         async def streaming_generator():
@@ -312,7 +378,7 @@ async def proxy_request(
                     ):
                         yield chunk
                 except HTTPException as e:
-                    # Преобразуем HTTPException в формат, понятный клиенту
+                    # Convert HTTPException to client-understandable format
                     error_data = json.dumps({
                         "error": {
                             "message": e.detail,
@@ -342,7 +408,7 @@ async def proxy_request(
             }
         )
 
-    # Обработка не-streaming запросов
+    # Handle non-streaming requests
     async with httpx.AsyncClient() as client:
         try:
             headers = {
@@ -362,9 +428,9 @@ async def proxy_request(
                 timeout=10.0
             )
 
-            # Обработка лимита запросов
+            # Handle request limit
             if response.status_code == 429:
-                key_manager.handle_rate_limit_response(selected_key, response)
+                await key_manager.handle_rate_limit_response(selected_key, response)
                 new_key = key_manager.get_available_key()
                 if new_key:
                     logger.info(f"Retrying with new key: {new_key[:5]}...")
@@ -385,6 +451,10 @@ async def proxy_request(
                     )
 
             content = response.content
+
+            if response.status_code == 200:
+                key_manager.increment_success_count(selected_key)
+
             logger.debug(f"Response body: {content[:500]}...")
             return Response(
                 content=content,
