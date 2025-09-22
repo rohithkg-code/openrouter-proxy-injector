@@ -38,7 +38,8 @@ H -->|"4XX / 5XX - Other error"| ERR["Return error to client"] --> F
 |PROXY_API_KEY|String|True|EMPTY|Ваш собственный унифицированный ключ API для обработки ваших запросов|
 |OPENROUTER_KEYS|String|True|EMPTY|Ключи API Openrouter. Например, `OPENROUTER_KEYS=sk...ab,sk...cd` и так далее|
 |TIMEZONE|String|False|UTC|Временная зона для обработки ежедневных лимитов использования API для бесплатных моделей. Используется для сброса ограниченных и заблокированных ключей.|
-|APP_PORT|Int|False|9999|Порт приложения по умолчанию для прослушивания|
+|UVICORN_PORT|Int|False|9999|Default app port to listen|
+|UVICORN_HOST|Int|False|0.0.0.0|Default app ip to listen|
 |UVICORN_LOG_LEVEL|String|False|info|Установите уровень ведения журнала. Например, debug для отображения сведений о запросах, включая тело и ответы. API ключи OpenRouter запутываются в отладочных журналах.
 # Быстрый старт с Docker
 1. [Установите](https://docs.docker.com/engine/install/) Docker engine

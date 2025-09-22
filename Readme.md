@@ -9,7 +9,6 @@
 # Readme on other languages
 
 [![en](https://img.shields.io/badge/lang-en-blue.svg)](https://github.com/serjs/openrouter-proxy-injector/blob/oss/Readme.md)
-
 [![ru](https://img.shields.io/badge/lang-ru-red.svg)](https://github.com/Hostwerk-Labs/nexus-node/blob/oss/docsReadme-ru.md)
 
 # Service overview
@@ -67,17 +66,12 @@ graph TD
 # App config parameters
 
 |ENV variable|Type|Required|Default|Description|
-
 |------------|----|--------|-------|-----------|
-
 |PROXY_API_KEY|String|True|EMPTY|You custom unified API key for handling your requests|
-
 |OPENROUTER_KEYS|String|True|EMPTY|Openrouter API Keys. For e.g. `OPENROUTER_KEYS=sk...ab,sk...cd` and so on|
-
 |TIMEZONE|String|False|UTC|Timezone for handling daily API usage limits for free models. Used to reset limited and locked keys.|
-
-|APP_PORT|Int|False|9999|Default app port to listen|
-
+|UVICORN_PORT|Int|False|9999|Default app port to listen|
+|UVICORN_HOST|Int|False|0.0.0.0|Default app ip to listen|
 |UVICORN_LOG_LEVEL|String|False|info|Set logging level. E.g. debug for show requests details, including body and responses. OpenRouter API Keys are obfuscated in debug logs.
 
 # Quickstart with Docker
