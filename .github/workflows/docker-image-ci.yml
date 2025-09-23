@@ -1,0 +1,32 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "oss" ]
+  pull_request:
+    branches: [ "oss" ]
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set image tag
+        id: set_image_tag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/oss" ]; then
+            echo "::set-output name=image_tag::latest"
+          elif [ "${{ github.event_name }}" == "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "::set-output name=image_tag::${{ github.ref_name }}"
+          else
+            echo "::set-output name=image_tag::test"
+          fi
+      - name: Build and push Docker image
+        run: |
+          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_TOKEN }}
+          docker build --push -t ghcr.io/${{ github.repository }}/openrouter-proxy-injector:${{ steps.set_image_tag.outputs.image_tag }} -t ghcr.io/${{ github.repository }}/openrouter-proxy-injector:latest
