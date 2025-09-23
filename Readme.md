@@ -17,7 +17,7 @@ Openrouter proxy injector enables you to launch and manage Openrouter API keys f
 
 It’s ideal for Vibe coding, intensive AI agent usage, or simply developing with the Openrouter API.
 
-# Fetures
+# Features
 
 - Use different billing API keys for your agent swarm
 
@@ -33,7 +33,9 @@ It’s ideal for Vibe coding, intensive AI agent usage, or simply developing wit
 
 # Tech details
 
-<video src="./docs/how" width="640" height="480" controls>
+<video controls width="600">
+<source src="./docs/howitworks_animation.mp4" type="video/mp4">
+Your browser does not support the video tag
 </video>
 
 <details>

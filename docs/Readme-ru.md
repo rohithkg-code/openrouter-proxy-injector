@@ -17,9 +17,12 @@ Openrouter proxy injector позволяет вам запускать и упр
 - Поддержка всех методов Openrouter API для взаимодействия с моделями как есть
 - Обработка потоковых и не потоковых запросов с обработкой лимита скорости 429
 - Учитывает лимит повторных попыток в минуту для Openrouter API.
+
 # Технические детали
 
-<video src="./docs/howitworks_animation.mp4" width="640" height="480" controls>
+<video controls width="600">
+<source src="./howitworks_animation.mp4" type="video/mp4">
+Your browser does not support the video tag
 </video>
 
 <details>
@@ -42,7 +45,7 @@ Openrouter proxy injector позволяет вам запускать и упр
 
   </p>
 </details>
-```
+
 # Параметры конфигурации приложения
 
 |ENV variable|Type|Required|Default|Description|
