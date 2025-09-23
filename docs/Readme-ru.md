@@ -20,10 +20,7 @@ Openrouter proxy injector позволяет вам запускать и упр
 
 # Технические детали
 
-<video controls width="600">
-<source src="./howitworks_animation.mp4" type="video/mp4">
-Your browser does not support the video tag
-</video>
+[![Watch the video]](https://raw.githubusercontent.com/serjs/openrouter-proxy-injector/oss/docs/howitworks_animation.mp4)
 
 <details>
   <summary>Техническая архитектура</summary>

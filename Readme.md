@@ -33,10 +33,9 @@ It’s ideal for Vibe coding, intensive AI agent usage, or simply developing wit
 
 # Tech details
 
-<video controls width="600">
-<source src="./docs/howitworks_animation.mp4" type="video/mp4">
-Your browser does not support the video tag
-</video>
+[![Watch the video]](https://raw.githubusercontent.com/serjs/openrouter-proxy-injector/oss/docs/howitworks_animation.mp4)
+
+https://github.com/serjs/openrouter-proxy-injector/raw/refs/heads/oss/docs/howitworks_animation.mp4
 
 <details>
   <summary>Technical architecture</summary>
