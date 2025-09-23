@@ -20,7 +20,7 @@ Openrouter proxy injector позволяет вам запускать и упр
 
 # Технические детали
 
-[![Watch the video]](https://raw.githubusercontent.com/serjs/openrouter-proxy-injector/oss/docs/howitworks_animation.mp4)
+<https://raw.githubusercontent.com/serjs/openrouter-proxy-injector/oss/docs/howitworks_animation.mp4>
 
 <details>
   <summary>Техническая архитектура</summary>
