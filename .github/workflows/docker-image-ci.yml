@@ -1,11 +1,11 @@
-name: "Latest tag from master branch"
+name: "Build and Publish docker images"
 env:
   DOCKERHUB_REPOSITORY: serjs/openrouter-proxy-injector
 on:
   pull_request:
-    branches: master
+    branches: oss
   push:
-    branches: master
+    branches: oss
   release:
     types: [published, edited]
 jobs:
