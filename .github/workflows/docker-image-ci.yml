@@ -5,9 +5,8 @@ on:
     branches: [ "oss" ]
   pull_request:
     branches: [ "oss" ]
-  push:
-    tags:
-      - '*'
+  release:
+    types: [published, edited]
 
 jobs:
   build:
