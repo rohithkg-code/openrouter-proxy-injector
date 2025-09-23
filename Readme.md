@@ -33,7 +33,9 @@ It’s ideal for Vibe coding, intensive AI agent usage, or simply developing wit
 
 # Tech details
 
-<https://raw.githubusercontent.com/serjs/openrouter-proxy-injector/oss/docs/howitworks_animation.mp4>
+https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
+
+
 
 <details>
   <summary>Technical architecture</summary>
