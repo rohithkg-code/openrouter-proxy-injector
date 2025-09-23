@@ -32,8 +32,8 @@ jobs:
         uses: docker/metadata-action@v3
         with:
           images: |
-            serjs/go-socks5-proxy
-            ghcr.io/${{ github.repository }}/go-socks5-proxy
+            serjs/openrouter-proxy-injector
+            ghcr.io/${{ github.repository }}/openrouter-proxy-injector
           tags: |
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
             type=ref,event=branch
