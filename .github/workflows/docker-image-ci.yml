@@ -1,31 +1,62 @@
-name: Docker Image CI
-
+name: "Latest tag from master branch"
+env:
+  DOCKERHUB_REPOSITORY: serjs/openrouter-proxy-injector
 on:
-  push:
-    branches: [ "oss" ]
   pull_request:
-    branches: [ "oss" ]
+    branches: master
+  push:
+    branches: master
   release:
     types: [published, edited]
-
 jobs:
-  build:
+  hadolint:
+    name: hadolint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@master
+      - name: hadolint
+        uses: hadolint/hadolint-action@v1.5.0
         with:
-          fetch-depth: 0
-      - name: Set image tag
-        id: set_image_tag
-        run: |
-          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/oss" ]; then
-            echo "::set-output name=image_tag::latest"
-          elif [ "${{ github.event_name }}" == "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "::set-output name=image_tag::${{ github.ref_name }}"
-          else
-            echo "::set-output name=image_tag::test"
-          fi
-      - name: Build and push Docker image
-        run: |
-          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_TOKEN }}
-          docker build --push -t ghcr.io/${{ github.repository }}/openrouter-proxy-injector:${{ steps.set_image_tag.outputs.image_tag }} -t ghcr.io/${{ github.repository }}/openrouter-proxy-injector:latest
+          ignore: DL3018
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: crazy-max/ghaction-docker-buildx@v1.1.0
+      - name: Print builder available platforms
+        run: echo ${{ steps.buildx.outputs.platforms }}
+      - id: meta
+        uses: docker/metadata-action@v3
+        with:
+          images: |
+            serjs/go-socks5-proxy
+            ghcr.io/${{ github.repository }}/go-socks5-proxy
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{raw}}
+      - name: Dockerhub login
+        uses: docker/login-action@v2
+        if: github.event_name != 'pull_request'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Github container registry login
+        uses: docker/login-action@v2
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+      - name: Run Buildx for amd64, armv7, arm64 architectures
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm/v7,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
