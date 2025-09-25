@@ -101,12 +101,50 @@ https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
 
   [http://<docker_host_ip>:9999/docs#/default/get_key_status_key_status_get](http://<docker_host_ip>:9999/docs#/default/get_key_status_key_status_get)
 
-# Examples for diffrent products
+# Setting up openrouter-proxy for
 
-## VSCode Continue
+<details>
+  <summary>VSCode Continue</summary>
+  <!-- VSCode Continue content goes here -->
+  <p>Example configuration and usage instructions for VSCode Continue.</p>
+  <img src="./docs/vscode_continue_example.png" alt="VSCode Continue Example">
+</details>
 
-## LobeChat
+<details>
+  <summary>LobeChat</summary>
+  <!-- LobeChat content goes here -->
+  <p>Example configuration and usage instructions for LobeChat.</p>
+  <img src="./docs/lobechat_example_config.png" alt="LobeChat Example Config">
+</details>
 
-## Custom Agentic Code
+<details>
+  <summary>AnythingLLM</summary>
+  <!-- AnythingLLM content goes here -->
+  <p>Example configuration and usage instructions for AnythingLLM.</p>
+  <img src="./docs/anythingllm_example.png" alt="AnythingLLM Example">
+</details>
 
-## AnythingLLM
+# FAQ
+
+<details>
+  <summary>Q: What types of API Rate Limiting exist in OpenRouter?</summary>
+  <p>
+    A: There are three different limits:
+    <ol>
+      <li><code>:free</code> models limits: 20 requests per minute, 50 requests per day for &lt;=10 credits and 1000 requests per day for >=10 credits. <a href="https://openrouter.ai/docs/api-reference/limits">Official docs</a></li>
+      <li>Cloudflare DDOS Protection Rate limits: Handled by user agent in the current codebase.</li>
+      <li>Upstream server rate-limit: Global to Openrouter upstreams, handled with exponential retries (respects 20 requests per minute).</li>
+    </ol>
+  </p>
+</details>
+
+<details>
+  <summary>Q: How to know which limits I'm facing?</summary>
+  <p>
+    A: OpenRouter info in API responses are logged by the proxy injector.
+    <ol>
+      <li><code>&lt;MODEL_NAME&gt; is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits</code> - logged as <code>Key sk-12345... is temporarily rate-limited upstream.</code> Retrying 15 times.</li>
+      <li><code>Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day</code> - logged as <code>Key sk-12345... has reached the maximum success count and is temporarily blocked.</code> Reached daily <code>:free</code> models requests; blocked until limit reset (00:00 UTC).</li>
+    </ol>
+  </p>
+</details>

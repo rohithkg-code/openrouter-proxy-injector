@@ -184,7 +184,7 @@ class KeyManager:
                     self.current_index = (self.current_index + i + 1) % len(OPENROUTER_KEYS)
                     return key
                 else:
-                    logger.warning(f"Key {key[:8]}... has reached the maximum success count and is temporarily blocked.")
+                    logger.warning(f"Key {key[:5]}... has reached the maximum success count and is temporarily blocked.")
 
         return None
 
