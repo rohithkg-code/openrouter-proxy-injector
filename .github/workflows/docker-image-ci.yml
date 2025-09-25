@@ -33,7 +33,7 @@ jobs:
         with:
           images: |
             serjs/openrouter-proxy-injector
-            ghcr.io/${{ github.repository }}/openrouter-proxy-injector
+            ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'oss') }}
             type=ref,event=branch
