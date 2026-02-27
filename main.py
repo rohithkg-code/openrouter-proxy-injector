@@ -283,7 +283,16 @@ def sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
     return sanitized
 
 
-def log_request_debug(method: str, url: str, headers: Dict[str, str], body: bytes):
+def mask_key(key: Optional[str]) -> str:
+    """Masks an API key for logging"""
+    if not key:
+        return "None"
+    return f"{key[:14]}..."
+
+
+def log_request_debug(
+    method: str, url: str, headers: Dict[str, str], body: bytes, prefix: str = ""
+):
     """Logs request details in debug mode"""
     sanitized_headers = sanitize_headers(headers)
     body_info = None
@@ -300,12 +309,14 @@ def log_request_debug(method: str, url: str, headers: Dict[str, str], body: byte
         "body": body_info,
     }
 
+    prefix_str = f"[{prefix}] " if prefix else ""
     logger.debug(
-        "Request details:\n%s", json.dumps(log_data, indent=2, ensure_ascii=False)
+        f"{prefix_str}Request details:\n%s",
+        json.dumps(log_data, indent=2, ensure_ascii=False),
     )
 
 
-def log_response_debug(response: httpx.Response):
+def log_response_debug(response: httpx.Response, prefix: str = ""):
     sanitized_headers = sanitize_headers(dict(response.headers))
 
     log_data = {
@@ -313,8 +324,10 @@ def log_response_debug(response: httpx.Response):
         "headers": sanitized_headers,
     }
 
+    prefix_str = f"[{prefix}] " if prefix else ""
     logger.debug(
-        "Response details:\n%s", json.dumps(log_data, indent=2, ensure_ascii=False)
+        f"{prefix_str}Response details:\n%s",
+        json.dumps(log_data, indent=2, ensure_ascii=False),
     )
 
 
@@ -531,6 +544,7 @@ async def forward_streaming(
     selected_key: str,
 ) -> AsyncGenerator[bytes, None]:
     """Asynchronously forwards streaming response with backoff"""
+    masked_key_str = mask_key(selected_key)
     try:
         async with client.stream(
             method=method,
@@ -540,7 +554,7 @@ async def forward_streaming(
             params=params,
             timeout=10,
         ) as response:
-            log_response_debug(response)
+            log_response_debug(response, prefix=masked_key_str)
             if response.status_code in (429, 402):
                 await key_manager.handle_rate_limit_response(selected_key, response)
                 raise HTTPException(
@@ -564,7 +578,7 @@ async def forward_streaming(
                     error_detail = f"Failed to read error body: {str(e)}"
 
                 logger.error(
-                    f"OpenRouter error: {response.status_code} - {error_detail}"
+                    f"[{masked_key_str}] OpenRouter error: {response.status_code} - {error_detail}"
                 )
                 raise HTTPException(
                     status_code=response.status_code, detail=error_detail
@@ -572,17 +586,17 @@ async def forward_streaming(
 
             # This will be logged in proxy_request
             logger.debug(
-                f"Response headers: {sanitize_headers(dict(response.headers))}"
+                f"[{masked_key_str}] Response headers: {sanitize_headers(dict(response.headers))}"
             )
 
             async for chunk in response.aiter_bytes():
                 yield chunk
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error: {str(e)}")
+        logger.error(f"[{masked_key_str}] HTTP error: {str(e)}")
         raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except httpx.RequestError as e:
-        logger.error(f"Request failed: {str(e)}")
+        logger.error(f"[{masked_key_str}] Request failed: {str(e)}")
         raise HTTPException(status_code=500, detail="OpenRouter API unavailable")
 
 
@@ -617,7 +631,7 @@ async def proxy_request(
         valid_auth = True
 
     if not valid_auth:
-        logger.warning("Invalid authentication")
+        logger.warning("Invalid authentication attempt")
         raise HTTPException(status_code=403, detail="Invalid authentication")
 
     is_streaming = False
@@ -636,9 +650,6 @@ async def proxy_request(
     # Prepare request to OpenRouter
     openrouter_url = f"https://openrouter.ai/api/v1/{path}"
     params = dict(request.query_params)
-    logger.info(f"Forwarding request to OpenRouter: {request.method} {openrouter_url}")
-    logger.debug(f"Streaming: {is_streaming}")
-    logger.debug(f"Request body: {body_bytes.decode('utf-8')}")
 
     start_time = time.time()
 
@@ -651,6 +662,13 @@ async def proxy_request(
                 status_code=429,
                 detail="All API keys are rate limited. Try after 03:00 UTC.",
             )
+
+        masked_key_str = mask_key(selected_key)
+        logger.info(
+            f"[{masked_key_str}] Forwarding request to OpenRouter: {request.method} {openrouter_url}"
+        )
+        logger.debug(f"[{masked_key_str}] Streaming: {is_streaming}")
+        logger.debug(f"[{masked_key_str}] Request body: {body_bytes.decode('utf-8')}")
 
         # Create headers for OpenRouter
         openrouter_headers = {
@@ -665,7 +683,9 @@ async def proxy_request(
         async def streaming_generator():
             nonlocal start_time
             if not http_client:
-                logger.error("Global HTTP client not initialized")
+                logger.error(
+                    f"[{mask_key(selected_key)}] Global HTTP client not initialized"
+                )
                 yield json.dumps(
                     {"error": {"message": "Internal server error", "code": 500}}
                 ).encode("utf-8")
@@ -684,7 +704,7 @@ async def proxy_request(
                     if start_time:
                         duration = time.time() - start_time
                         logger.info(
-                            f"OpenRouter response: 200 (Streaming started) in {duration:.2f}s"
+                            f"[{mask_key(selected_key)}] OpenRouter response: 200 (Streaming started) in {duration:.2f}s"
                         )
                         start_time = None  # Only log once
                     yield chunk
@@ -692,7 +712,7 @@ async def proxy_request(
                 if start_time:
                     duration = time.time() - start_time
                     logger.info(
-                        f"OpenRouter response: {e.status_code} in {duration:.2f}s"
+                        f"[{masked_key_str}] OpenRouter response: {e.status_code} in {duration:.2f}s"
                     )
 
                 error_data = json.dumps(
@@ -708,9 +728,11 @@ async def proxy_request(
             except Exception as e:
                 if start_time:
                     duration = time.time() - start_time
-                    logger.info(f"OpenRouter response: 500 in {duration:.2f}s")
+                    logger.info(
+                        f"[{masked_key_str}] OpenRouter response: 500 in {duration:.2f}s"
+                    )
 
-                logger.error(f"Unexpected error: {str(e)}")
+                logger.error(f"[{masked_key_str}] Unexpected error: {str(e)}")
                 error_data = json.dumps(
                     {
                         "error": {
@@ -747,6 +769,13 @@ async def proxy_request(
                 detail="All API keys are rate limited.",
             )
 
+        masked_key_str = mask_key(selected_key)
+        logger.info(
+            f"[{masked_key_str}] Forwarding request to OpenRouter: {request.method} {openrouter_url}"
+        )
+        logger.debug(f"[{masked_key_str}] Streaming: {is_streaming}")
+        logger.debug(f"[{masked_key_str}] Request body: {body_bytes.decode('utf-8')}")
+
         headers = {
             "Authorization": f"Bearer {selected_key}",
             "X-Title": "OpenrouterProxy",
@@ -767,14 +796,14 @@ async def proxy_request(
         if not response:
             raise HTTPException(status_code=502, detail="OpenRouter request failed")
 
-        log_response_debug(response)
+        log_response_debug(response, prefix=masked_key_str)
 
         # Handle request limit and retry with different keys if needed
         attempts = 0
         while response.status_code in (429, 402) and attempts < 10:
             attempts += 1
             logger.warning(
-                f"Received {response.status_code} status. Attempt {attempts}"
+                f"[{mask_key(selected_key)}] Received {response.status_code} status. Attempt {attempts}"
             )
             await key_manager.handle_rate_limit_response(selected_key, response)
 
@@ -782,7 +811,8 @@ async def proxy_request(
             if not selected_key:
                 break
 
-            logger.info(f"Retrying with key: {selected_key[:14]}...")
+            masked_key_str = mask_key(selected_key)
+            logger.info(f"Retrying with key: {masked_key_str}...")
             headers["Authorization"] = f"Bearer {selected_key}"
             response = await make_openrouter_request(
                 client=http_client,
@@ -795,7 +825,7 @@ async def proxy_request(
             )
             if not response:
                 break
-            log_response_debug(response)
+            log_response_debug(response, prefix=masked_key_str)
 
         if not response:
             raise HTTPException(
@@ -805,8 +835,10 @@ async def proxy_request(
         content = response.content
 
         duration = time.time() - start_time
-        logger.info(f"OpenRouter response: {response.status_code} in {duration:.2f}s")
-        logger.debug(f"Response body: {content[:500]}...")
+        logger.info(
+            f"[{masked_key_str}] OpenRouter response: {response.status_code} in {duration:.2f}s"
+        )
+        logger.debug(f"[{masked_key_str}] Response body: {content[:500]}...")
 
         # Filter out headers that can cause issues with HTTP/2 or are handled by FastAPI
         excluded_headers = {
@@ -836,8 +868,12 @@ async def proxy_request(
         )
     except httpx.RequestError as e:
         duration = time.time() - start_time
-        logger.info(f"OpenRouter response: RequestError in {duration:.2f}s")
-        logger.error(f"Request failed: {str(e)}")
+        # Note: selected_key might not be defined if get_available_key failed,
+        # but we are inside the try block after it succeeded.
+        logger.info(
+            f"[{masked_key_str}] OpenRouter response: RequestError in {duration:.2f}s"
+        )
+        logger.error(f"[{masked_key_str}] Request failed: {str(e)}")
         raise HTTPException(status_code=500, detail="OpenRouter API unavailable")
 
 
