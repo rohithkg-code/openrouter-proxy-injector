@@ -1,12 +1,12 @@
 <p align="center">
 
-    <b>Openrouter-Proxy-Injector:</b> Openrouter API Keys management for heavy usage cases.<br />
+    <b>Openrouter-Proxy-Injector:</b> Openrouter API Proxy with keys management for heavy usage cases.<br />
 
-    Smart proxy server for OpenRouter key rotation with automated mitigation of upstream server rate limits
+    Lightweight (~48Mb RAM in container) and smart proxy server for OpenRouter key rotation with automated mitigation of upstream server rate limits.
 
 </p>
 
-# Readme on other languages
+# Readme in your language
 
 [![en](https://img.shields.io/badge/lang-en-blue.svg)](https://github.com/serjs/openrouter-proxy-injector/blob/oss/Readme.md)
 [![ru](https://img.shields.io/badge/lang-ru-red.svg)](https://github.com/serjs/openrouter-proxy-injector/blob/oss/docs/Readme-ru.md)
@@ -21,21 +21,19 @@ It’s ideal for Vibe coding, intensive AI agent usage, or simply developing wit
 
 - Use different billing API keys for your agent swarm
 
-- Manage request limits of 50 requests per day for each API account, enabling unlimited use of Free models through multiple accounts
+- Manage limits of 50 free model requests per day for each API account, enabling near unlimited use of Free models through multiple accounts
 
 - Automatically retry requests until a response is received from the upstream model when hitting upstream service limits (e.g., frequent Google Gemini 429 rate limits during intensive agent usage)
 
 - Support all openrouter API methods for model interaction as is
 
-- Handling streaming and non-streaming requests with 429 Rate limit handling
+- Supports streaming and non-streaming requests
 
-- Respects Openrouter API retry limit per minute for retrying
+- Respects Openrouter API retry limit per minute for retrying requests
 
 # Tech details
 
 https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
-
-
 
 <details>
   <summary>Technical architecture</summary>
