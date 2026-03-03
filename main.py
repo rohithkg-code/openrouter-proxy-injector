@@ -35,6 +35,7 @@ if not PROXY_API_KEY:
 
 
 def parse_keys_config(config_str: str) -> List[Dict]:
+    """Parses the keys configuration string into a list of dictionaries"""
     keys = []
     for item in config_str.split(","):
         item = item.strip()
@@ -64,8 +65,8 @@ TIMEZONE = os.getenv("TIMEZONE", "UTC")
 key_status: Dict[str, Optional[pendulum.DateTime]] = {}
 
 
-# Retry for non-streaming requests (network errors only)
 def non_streaming_retry():
+    """Retry decorator for non-streaming requests (network errors only)"""
     return backoff.on_exception(
         backoff.expo,
         (httpx.RequestError, httpx.TimeoutException),
@@ -73,8 +74,9 @@ def non_streaming_retry():
     )
 
 
-# Retry for streaming requests
 def async_retryable(func):
+    """Decorator for retrying streaming requests with key switching logic"""
+
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         last_exception = None
@@ -202,6 +204,7 @@ async def make_openrouter_request(
     params: Dict[str, str],
     timeout: float,
 ):
+    """Makes a non-streaming request to OpenRouter with retry logic"""
     try:
         response = await client.request(
             method=method,
@@ -218,9 +221,7 @@ async def make_openrouter_request(
 
 
 def check_retryable_error(response: httpx.Response) -> bool:
-    """
-    Checks if the error in the httpx.Response is retryable based on its content.
-    """
+    """Checks if the error in the httpx.Response is retryable based on its content"""
     try:
         error_content = response.json()
         if not isinstance(error_content, dict):
@@ -246,6 +247,7 @@ def check_retryable_error(response: httpx.Response) -> bool:
 
 @app.on_event("startup")
 async def startup_event():
+    """Initializes the application, API keys, and global HTTP client on startup"""
     global key_status, http_client
     if not OPENROUTER_KEYS:
         logger.error("No OPENROUTER_KEYS provided! Exiting...")
@@ -264,6 +266,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    """Closes the global HTTP client on application shutdown"""
     global http_client
     if http_client:
         await http_client.aclose()
@@ -317,6 +320,7 @@ def log_request_debug(
 
 
 def log_response_debug(response: httpx.Response, prefix: str = ""):
+    """Logs response details in debug mode"""
     sanitized_headers = sanitize_headers(dict(response.headers))
 
     log_data = {
@@ -332,6 +336,8 @@ def log_response_debug(response: httpx.Response, prefix: str = ""):
 
 
 class KeyManager:
+    """Manages OpenRouter API keys, including rotation, rate limiting, and usage tracking"""
+
     def __init__(self):
         self.current_index = 0
         self.key_configs = {c["key"]: c for c in OPENROUTER_CONFIG}
@@ -345,9 +351,11 @@ class KeyManager:
         }
 
     def _get_next_reset(self) -> pendulum.DateTime:
+        """Calculates the next daily quota reset time (midnight UTC)"""
         return pendulum.today("UTC").add(days=1)
 
     def _check_and_reset_quotas(self):
+        """Checks if quotas need to be reset based on the current time"""
         now_utc = pendulum.now("UTC")
         for key in OPENROUTER_KEYS:
             if now_utc >= self.usage_stats[key]["reset_at"]:
@@ -359,6 +367,7 @@ class KeyManager:
                     key_status[key] = None
 
     def get_available_key(self) -> Optional[str]:
+        """Selects an available API key based on capacity and rate limits"""
         if not OPENROUTER_KEYS:
             return None
 
@@ -412,6 +421,7 @@ class KeyManager:
         return selected_key
 
     def block_key_until_next_day(self, key: str):
+        """Blocks a key until the next daily reset (e.g., when daily limit is reached)"""
         unlock_time = self._get_next_reset().in_timezone(TIMEZONE)
         key_status[key] = unlock_time
 
@@ -424,6 +434,7 @@ class KeyManager:
         )
 
     async def handle_rate_limit_response(self, key: str, response: httpx.Response):
+        """Handles 429 and 402 responses by blocking keys for appropriate durations"""
         try:
             if response.status_code == 402:
                 # Payment Required - block for 5 minutes and warn user
@@ -489,6 +500,7 @@ class KeyManager:
             logger.error(f"Unexpected error handling rate limit response: {str(e)}")
 
     def get_key_statuses(self) -> Dict[str, Dict]:
+        """Returns the current status and usage statistics for all API keys"""
         current_time = pendulum.now(TIMEZONE)
         statuses = {}
         for key in OPENROUTER_KEYS:
@@ -520,6 +532,7 @@ key_manager = KeyManager()
 
 @app.get("/health")
 async def health_endpoint(format: Optional[str] = None):
+    """Simple health check endpoint"""
     if format and format.lower() == "json":
         return JSONResponse(content={"status": "OK"}, status_code=200)
     return Response(content="OK", status_code=200)
@@ -527,6 +540,7 @@ async def health_endpoint(format: Optional[str] = None):
 
 @app.get("/key-status")
 async def get_key_status(apikey: str = Header(..., alias="APIKEY")):
+    """Endpoint to retrieve the status of all managed API keys"""
     if apikey != PROXY_API_KEY:
         logger.warning("Invalid proxy API key for key-status endpoint")
         raise HTTPException(status_code=403, detail="Invalid proxy API key")
@@ -609,6 +623,7 @@ async def proxy_request(
     authorization: str = Header(None, alias="Authorization"),
     apikey: str = Header(None, alias="APIKEY"),
 ):
+    """Main proxy endpoint that forwards requests to OpenRouter with key management and retries"""
     # Handle CORS preflight requests locally and don't forward them to OpenRouter
     if request.method == "OPTIONS":
         return Response(
