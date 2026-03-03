@@ -20,9 +20,9 @@ on:
         default: false
 
 env:
-  DOCKERHUB_REPO: ${{ github.repository }}
-  GHCR_REPO: ghcr.io/${{ github.repository }}
-
+  DOCKERHUB_REPO: serjs/openrouter-proxy-injector
+  GHCR_REPO: ghcr.io/serjs/openrouter-proxy-injector
+  
 jobs:
   hadolint:
     name: Hadolint
