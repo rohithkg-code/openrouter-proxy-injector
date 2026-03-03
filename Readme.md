@@ -1,8 +1,8 @@
 <p align="center">
 
-    <b>Openrouter-Proxy-Injector:</b> Openrouter API Proxy with keys management for heavy usage cases.<br />
+<b>OpenRouter-Proxy-Injector:</b> OpenRouter API Proxy with key management for heavy usage cases.<br />
 
-    Lightweight (~48Mb RAM in container) and smart proxy server for OpenRouter key rotation with automated mitigation of upstream server rate limits.
+Lightweight (~48Mb RAM in container) and smart proxy server for OpenRouter key rotation with automatic mitigation of upstream server rate limits.
 
 </p>
 
@@ -13,23 +13,19 @@
 
 # Service overview
 
-Openrouter proxy injector enables you to launch and manage Openrouter API keys for both DEV and PRODUCTION environments, while also tracking and handling rate limits from upstream providers for both paid and free models.
+OpenRouter Proxy Injector enables you to use and manage OpenRouter API keys for both DEV and PRODUCTION environments, while also tracking and handling rate limits from upstream providers for both paid and free models.
 
-It’s ideal for Vibe coding, intensive AI agent usage, or simply developing with the Openrouter API.
+It’s ideal for "Vibe coding", intensive AI agent usage, or simply developing with the OpenRouter API.
 
 # Features
 
-- Use different billing API keys for your agent swarm
-
-- Manage limits of 50 free model requests per day for each API account, enabling near unlimited use of Free models through multiple accounts
-
-- Automatically retry requests until a response is received from the upstream model when hitting upstream service limits (e.g., frequent Google Gemini 429 rate limits during intensive agent usage)
-
-- Support all openrouter API methods for model interaction as is
-
-- Supports streaming and non-streaming requests
-
-- Respects Openrouter API retry limit per minute for retrying requests
+- **Smart Key Rotation**: Uses a quota-aware strategy to prioritize keys with the most remaining daily capacity.
+- **Mixed Key Support**: Use different billing API keys for your agent swarm (supports both free and paid keys).
+- **Daily Quota Management**: Manage limits of 50 or 1000 free model requests per day for each API account, enabling nearly unlimited use of Free models through multiple accounts.
+- **Proactive Throttling**: Automatically respects the 20 requests-per-minute limit per key to avoid 429 errors.
+- **Automatic Retries**: Automatically retry requests until a response is received from the upstream model when hitting upstream service limits (e.g., frequent Google Gemini 429 rate limits during intensive agent usage).
+- **Full API Support**: Supports all OpenRouter API methods for model interaction as-is.
+- **Streaming Support**: Supports both streaming and non-streaming requests.
 
 # Tech details
 
@@ -42,15 +38,16 @@ https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
   ```mermaid
   graph TD
   A["Client (VSCode / AnythingLLM / Custom Code)"] -->|"Request with APIKEY variable"| B["Proxy Server"]
-  B --> C{"Are there available keys?"}
-  C -->|"Yes"| D["Select active key"]
-  C -->|"No"| E["429 - All keys exhausted"] --> F["Response to client"]
-  D --> G["Send request with real OpenRouter key"]
-  G --> H{"Response from OpenRouter"}
-  H -->|"200 OK"| I["Successful response"] --> F
-  H -->|"429 - Provider error (retryable)"| L["Retry request (up to 15 times)"] --> H
-  H -->|"429 - Rate limit for free models"| J["Block key until 03:00 UTC"] --> K["Retry with new key if available"] --> C
-  H -->|"4XX / 5XX - Other error"| ERR["Return error to client"] --> F
+  B --> C{"Key Manager"}
+  C -->|"Filter Keys"| D["Check Blocked / Daily Quota / RPM"]
+  D -->|"Select Best"| E["Prioritize by Remaining Quota %"]
+  E -->|"No Keys"| F["429 - All keys exhausted"] --> G["Response to client"]
+  E -->|"Key Selected"| H["Send request to OpenRouter"]
+  H --> I{"Response from OpenRouter"}
+  I -->|"200 OK"| J["Successful response"] --> G
+  I -->|"429 - Provider error (retryable)"| K["Retry request (up to 10 times)"] --> I
+  I -->|"429 - Daily limit reached"| L["Block key until UTC Midnight"] --> M["Retry with new key"] --> C
+  I -->|"4XX / 5XX - Other error"| ERR["Return error to client"] --> G
   ```
 
   </p>
@@ -60,22 +57,22 @@ https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
 
 |ENV variable|Type|Required|Default|Description|
 |------------|----|--------|-------|-----------|
-|PROXY_API_KEY|String|True|EMPTY|You custom unified API key for handling your requests|
-|OPENROUTER_KEYS|String|True|EMPTY|Openrouter API Keys. For e.g. `OPENROUTER_KEYS=sk...ab,sk...cd` and so on|
+|PROXY_API_KEY|String|True|EMPTY|Your custom unified API key for handling your requests|
+|OPENROUTER_KEYS|String|True|EMPTY|OpenRouter API Keys. Supports optional limits: `key1:50,key2:1000,key3`. Defaults to 50.|
 |TIMEZONE|String|False|UTC|Timezone for handling daily API usage limits for free models. Used to reset limited and locked keys.|
 |UVICORN_PORT|Int|False|9999|Default app port to listen|
-|UVICORN_HOST|Int|False|0.0.0.0|Default app ip to listen|
-|UVICORN_LOG_LEVEL|String|False|info|Set logging level. E.g. debug for show requests details, including body and responses. OpenRouter API Keys are obfuscated in debug logs.
+|UVICORN_HOST|String|False|0.0.0.0|Default app IP to listen|
+|UVICORN_LOG_LEVEL|String|False|info|Set logging level. E.g. `debug` for showing request details, including body and responses. OpenRouter API Keys are obfuscated in debug logs.|
 
 # Quickstart with Docker
 
 1. [Install](https://docs.docker.com/engine/install/) Docker engine
 
-2. Run container `docker run -it -e PROXY_API_KEY=<RANDOM_UNIQE_STRONG_KEY> -e OPENROUTER_KEYS=sk...ab,sk...cd -p 9999:9999 ghcr.io/serjs/openrouter-proxy-injector:latest`
+2. Run container `docker run -it -e PROXY_API_KEY=<RANDOM_UNIQUE_STRONG_KEY> -e OPENROUTER_KEYS=sk...ab,sk...cd -p 9999:9999 ghcr.io/serjs/openrouter-proxy-injector:latest`
 
-3. Set OpenRouter API URL as your docker host URL, e.g. http://<docker_host_ip>:9999
+3. Set OpenRouter API URL as your docker host URL, e.g. `http://<docker_host_ip>:9999`
 
-4. That it
+4. That's it!
 
 5. Check Openrouter Proxy Injector API and key statuses
 
@@ -83,15 +80,15 @@ https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
 
   [http://<docker_host_ip>:9999/docs#/default/get_key_status_key_status_get](http://<docker_host_ip>:9999/docs#/default/get_key_status_key_status_get)
 
-# Quickstart wirh docker-compose
+# Quickstart with docker-compose
 
-1. Copy and edit .env `cp .end.sample .env`
+1. Copy and edit .env: `cp .env.sample .env`
 
-   Fill `PROXY_API_KEY` and `OPENROUTER_KEYS` as minimal required paramters
+   Fill `PROXY_API_KEY` and `OPENROUTER_KEYS` as the minimum required parameters.
 
 2. Run `docker compose up -d`
 
-4. That it
+3. That's it!
 
 5. Check Openrouter Proxy Injector API and key statuses
 
@@ -103,21 +100,18 @@ https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
 
 <details>
   <summary>VSCode Continue</summary>
-  <!-- VSCode Continue content goes here -->
   <p>Example configuration and usage instructions for VSCode Continue.</p>
   <img src="./docs/vscode_continue_example.png" alt="VSCode Continue Example">
 </details>
 
 <details>
   <summary>LobeChat</summary>
-  <!-- LobeChat content goes here -->
   <p>Example configuration and usage instructions for LobeChat.</p>
   <img src="./docs/lobechat_example_config.png" alt="LobeChat Example Config">
 </details>
 
 <details>
   <summary>AnythingLLM</summary>
-  <!-- AnythingLLM content goes here -->
   <p>Example configuration and usage instructions for AnythingLLM.</p>
   <img src="./docs/anythingllm_example.png" alt="AnythingLLM Example">
 </details>
@@ -131,7 +125,7 @@ https://github.com/user-attachments/assets/cb1afbaa-def3-47cc-85ba-622872e2f501
     <ol>
       <li><code>:free</code> models limits: 20 requests per minute, 50 requests per day for &lt;=10 credits and 1000 requests per day for >=10 credits. <a href="https://openrouter.ai/docs/api-reference/limits">Official docs</a></li>
       <li>Cloudflare DDOS Protection Rate limits: Handled by user agent in the current codebase.</li>
-      <li>Upstream server rate-limit: Global to Openrouter upstreams, handled with exponential retries (respects 20 requests per minute).</li>
+      <li>Upstream server rate-limit: Global to OpenRouter upstreams, handled with exponential retries (respects the 20 requests-per-minute limit).</li>
     </ol>
   </p>
 </details>
