@@ -1,61 +1,99 @@
-name: "Build and Publish docker images"
-env:
-  DOCKERHUB_REPOSITORY: serjs/openrouter-proxy-injector
+name: "Build and Publish Docker Images"
+
 on:
-  pull_request:
-    branches: oss
   push:
-    branches: oss
+    branches:
+      - oss
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - oss
   release:
-    types: [published, edited]
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_latest:
+        description: 'Tag as latest?'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  DOCKERHUB_REPO: ${{ github.repository }}
+  GHCR_REPO: ghcr.io/${{ github.repository }}
+
 jobs:
   hadolint:
-    name: hadolint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
-      - name: hadolint
-        uses: hadolint/hadolint-action@v1.5.0
-        with:
-          ignore: DL3018
-  docker:
+    name: Hadolint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: crazy-max/ghaction-docker-buildx@v1.1.0
-      - name: Print builder available platforms
-        run: echo ${{ steps.buildx.outputs.platforms }}
-      - id: meta
-        uses: docker/metadata-action@v3
+        uses: actions/checkout@v4
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
         with:
-          images: |
-            serjs/openrouter-proxy-injector
-            ghcr.io/${{ github.repository }}
-          tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'oss') }}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{raw}}
-      - name: Dockerhub login
-        uses: docker/login-action@v2
+          dockerfile: Dockerfile
+          ignore: DL3018
+
+  build-and-push:
+    name: Build and Push
+    needs: hadolint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Github container registry login
-        uses: docker/login-action@v2
+
+      - name: Login to GHCR
         if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
-      - name: Run Buildx for amd64, armv7, arm64 architectures
-        uses: docker/build-push-action@v2
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          platforms: linux/amd64,linux/arm/v7,linux/arm64
+          images: |
+            ${{ env.DOCKERHUB_REPO }}
+            ${{ env.GHCR_REPO }}
+          tags: |
+            # Tag as :dev on push to oss branch
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/oss' && github.event_name == 'push' }}
+            # Tag as :latest on release or manual dispatch
+            type=raw,value=latest,enable=${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag_latest) }}
+            # Semver tags from git tags
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # PR number tag
+            type=ref,event=pr
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
