@@ -1,6 +1,7 @@
 import os
 import logging
-from typing import List, Dict, Optional, AsyncGenerator
+from typing import List, Dict, Optional, AsyncGenerator, Annotated
+from contextlib import asynccontextmanager
 import pendulum
 import httpx
 from fastapi import FastAPI, Request, HTTPException, Header
@@ -13,7 +14,33 @@ import asyncio
 import functools
 import random
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initializes the application, API keys, and global HTTP client on startup"""
+    global key_status, http_client
+    if not OPENROUTER_KEYS:
+        logger.error("No OPENROUTER_KEYS provided! Exiting...")
+        exit(1)
+
+    key_status = {key: None for key in OPENROUTER_KEYS}
+    # max_keepalive_connections: number of idle connections to keep open
+    # max_connections: total number of concurrent connections
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    http_client = httpx.AsyncClient(limits=limits, timeout=httpx.Timeout(300.0))
+
+    logger.info(
+        f"Initialized with {len(OPENROUTER_KEYS)} API keys and global HTTP client"
+    )
+
+    yield
+
+    """Closes the global HTTP client on application shutdown"""
+    if http_client:
+        await http_client.aclose()
+        logger.info("Global HTTP client closed")
+
+
+app = FastAPI(lifespan=lifespan)
 
 http_client: Optional[httpx.AsyncClient] = None
 
@@ -245,32 +272,6 @@ def check_retryable_error(response: httpx.Response) -> bool:
     return False
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initializes the application, API keys, and global HTTP client on startup"""
-    global key_status, http_client
-    if not OPENROUTER_KEYS:
-        logger.error("No OPENROUTER_KEYS provided! Exiting...")
-        exit(1)
-
-    key_status = {key: None for key in OPENROUTER_KEYS}
-    # max_keepalive_connections: number of idle connections to keep open
-    # max_connections: total number of concurrent connections
-    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
-    http_client = httpx.AsyncClient(limits=limits, timeout=httpx.Timeout(300.0))
-
-    logger.info(
-        f"Initialized with {len(OPENROUTER_KEYS)} API keys and global HTTP client"
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Closes the global HTTP client on application shutdown"""
-    global http_client
-    if http_client:
-        await http_client.aclose()
-        logger.info("Global HTTP client closed")
 
 
 def sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
@@ -539,7 +540,7 @@ async def health_endpoint(format: Optional[str] = None):
 
 
 @app.get("/key-status")
-async def get_key_status(apikey: str = Header(..., alias="APIKEY")):
+async def get_key_status(apikey: Annotated[str, Header(alias="APIKEY")]):
     """Endpoint to retrieve the status of all managed API keys"""
     if apikey != PROXY_API_KEY:
         logger.warning("Invalid proxy API key for key-status endpoint")
@@ -620,8 +621,8 @@ async def forward_streaming(
 async def proxy_request(
     request: Request,
     path: str,
-    authorization: str = Header(None, alias="Authorization"),
-    apikey: str = Header(None, alias="APIKEY"),
+    authorization: Annotated[Optional[str], Header(alias="Authorization")] = None,
+    apikey: Annotated[Optional[str], Header(alias="APIKEY")] = None,
 ):
     """Main proxy endpoint that forwards requests to OpenRouter with key management and retries"""
     # Handle CORS preflight requests locally and don't forward them to OpenRouter
