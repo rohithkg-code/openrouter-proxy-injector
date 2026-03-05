@@ -2,6 +2,11 @@
 
 ## [Unreleased - available on :latest tag for docker image]
 ### Changed
+
+### Added
+
+## [0.1.0]
+### Changed
 - Refactored key rotation logic from random selection to a quota-aware prioritization strategy.
 - Updated `OPENROUTER_KEYS` configuration to support optional daily limits per key (e.g., `KEY:LIMIT`).
 - Improved `/key-status` endpoint to provide detailed usage statistics, remaining quotas, and last usage timestamps.
